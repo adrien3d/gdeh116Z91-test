@@ -45,7 +45,7 @@
 #define EPD_PIN_CLK     18
 #define EPD_PIN_CS      32
 #define EPD_PIN_DC      27
-#define EPD_PIN_RST     26*
+#define EPD_PIN_RST     26
 #define EPD_PIN_BUSY    35*/
 
 // One side
@@ -61,7 +61,7 @@
 static const char *TAG = "epaper";
 
 void epd_cmd(spi_device_handle_t spi, const uint8_t cmd) {
-    //esp_err_t ret;
+    esp_err_t ret;
     spi_transaction_t t;
     memset(&t, 0, sizeof(t));       //Zero out the transaction
     t.length=8;                     //Command is 8 bits
@@ -75,7 +75,7 @@ void epd_cmd(spi_device_handle_t spi, const uint8_t cmd) {
 }
 
 void epd_data(spi_device_handle_t spi, const uint8_t data) {
-    //esp_err_t ret;
+    esp_err_t ret;
     spi_transaction_t t;
     memset(&t, 0, sizeof(t));       //Zero out the transaction
     t.length=8;                     //Command is 8 bits
@@ -118,6 +118,14 @@ void _waitBusy(const char *message)
 
 void epd_init(spi_device_handle_t spi)
 {
+
+    gpio_set_direction((gpio_num_t)EPD_PIN_CS, GPIO_MODE_OUTPUT);
+    gpio_set_direction((gpio_num_t)EPD_PIN_DC, GPIO_MODE_OUTPUT);
+    gpio_set_direction((gpio_num_t)EPD_PIN_RST, GPIO_MODE_OUTPUT);
+    gpio_set_direction((gpio_num_t)EPD_PIN_BUSY, GPIO_MODE_INPUT);
+    gpio_set_pull_mode((gpio_num_t)EPD_PIN_BUSY, GPIO_PULLUP_ONLY);
+
+
     gpio_set_level(EPD_PIN_CS, 1);
     gpio_set_level(EPD_PIN_RST, 1);
     vTaskDelay(DELAY_11_6 / portTICK_PERIOD_MS);

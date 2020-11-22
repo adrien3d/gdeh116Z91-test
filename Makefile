@@ -3,6 +3,6 @@
 # project subdirectory.
 #
 
-PROJECT_NAME := spi_master
+PROJECT_NAME := epaper
 
 include $(IDF_PATH)/make/project.mk
