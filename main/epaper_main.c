@@ -15,6 +15,7 @@
 #include "esp_system.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
+#include "epd.h"
 
 //#ifdef CONFIG_IDF_TARGET_ESP32
 #define LCD_HOST    HSPI_HOST
@@ -58,9 +59,12 @@
 
 #define DELAY_11_6      100
 
-static const char *TAG = "epaper";
+#define SCREEN_TOTAL_BYTES 76800
 
-void epd_cmd(spi_device_handle_t spi, const uint8_t cmd) {
+static const char *TAG = "epaper";
+spi_device_handle_t spi;
+
+void epd_cmd(const uint8_t cmd) {
     esp_err_t ret;
     spi_transaction_t t;
     memset(&t, 0, sizeof(t));       //Zero out the transaction
@@ -71,11 +75,11 @@ void epd_cmd(spi_device_handle_t spi, const uint8_t cmd) {
     gpio_set_level(EPD_PIN_CS, 0);
     ret=spi_device_polling_transmit(spi, &t);  //Transmit!
     gpio_set_level(EPD_PIN_CS, 1);
-    gpio_set_level(EPD_PIN_DC, 1);
+    //gpio_set_level(EPD_PIN_DC, 1);
     //assert(ret==ESP_OK);            //Should have had no issues.
 }
 
-void epd_data(spi_device_handle_t spi, const uint8_t data) {
+void epd_data(const uint8_t data) {
     esp_err_t ret;
     spi_transaction_t t;
     memset(&t, 0, sizeof(t));       //Zero out the transaction
@@ -102,14 +106,14 @@ void lcd_spi_pre_transfer_callback(spi_transaction_t *t)
 void _waitBusy(const char *message)
 {
   ESP_LOGI(TAG, "_waitBusy for %s", message);
-  int64_t time_since_boot = esp_timer_get_time();
+  int64_t time_since_waitBusy_call = esp_timer_get_time();
 
   while (1)
   {
-    if (gpio_get_level((gpio_num_t)EPD_PIN_BUSY) == 1)
+    if (gpio_get_level((gpio_num_t)EPD_PIN_BUSY) == 0)
       break;
     vTaskDelay(1);
-    if (esp_timer_get_time() - time_since_boot > 40000000)
+    if (esp_timer_get_time() - time_since_waitBusy_call > 40000000)
     {
       ESP_LOGI(TAG, "Busy Timeout");
       break;
@@ -117,116 +121,122 @@ void _waitBusy(const char *message)
   }
 }
 
-void epd_init(spi_device_handle_t spi)
+void EPD_HW_Init(void)
 {
-
     gpio_set_direction((gpio_num_t)EPD_PIN_CS, GPIO_MODE_OUTPUT);
     gpio_set_direction((gpio_num_t)EPD_PIN_DC, GPIO_MODE_OUTPUT);
     gpio_set_direction((gpio_num_t)EPD_PIN_RST, GPIO_MODE_OUTPUT);
     gpio_set_direction((gpio_num_t)EPD_PIN_BUSY, GPIO_MODE_INPUT);
     gpio_set_pull_mode((gpio_num_t)EPD_PIN_BUSY, GPIO_PULLUP_ONLY);
 
-
-    gpio_set_level(EPD_PIN_CS, 1);
-    gpio_set_level(EPD_PIN_RST, 1);
-    vTaskDelay(DELAY_11_6 / portTICK_PERIOD_MS);
     gpio_set_level(EPD_PIN_RST, 0);
     vTaskDelay(DELAY_11_6 / portTICK_PERIOD_MS);
     gpio_set_level(EPD_PIN_RST, 1);
     vTaskDelay(DELAY_11_6 / portTICK_PERIOD_MS);
+    ESP_LOGI(TAG, "Step 1 done: Power on");
 
-    epd_cmd(spi, 0x12); //Software Reset
-    _waitBusy("Software reset");
+    epd_cmd(0x12); //Software Reset
+    _waitBusy("0x12 Software reset");
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+    ESP_LOGI(TAG, "Step 2 done: Resets");
 
-    epd_cmd(spi, 0x0C);
-    epd_data(spi, 0xAE);
-    epd_data(spi, 0xC7);
-    epd_data(spi, 0xC3);
-    epd_data(spi, 0xC0);
-    epd_data(spi, 0x40);
+    epd_cmd(0x0C);  // Soft start setting
+    epd_data(0xAE);
+    epd_data(0xC7);
+    epd_data(0xC3);
+    epd_data(0xC0);
+    epd_data(0x40);
 
-    epd_cmd(spi, 0x01);
-    epd_data(spi, 0x7F);
-    epd_data(spi, 0x02);
-    epd_data(spi, 0x00);
+    epd_cmd(0x01);  // Set MUX as 639
+    epd_data(0x7F);
+    epd_data(0x02);
+    epd_data(0x00);
 
-    epd_cmd(spi, 0x11);
-    epd_data(spi, 0x02);
+    epd_cmd(0x11);  // Data entry mode
+    epd_data(0x02);
 
-    epd_cmd(spi, 0x44);
-    epd_data(spi, 0xBF);
-    epd_data(spi, 0x03);
-    epd_data(spi, 0x00);
-    epd_data(spi, 0x00);
+    epd_cmd(0x44);
+    epd_data(0x00); // RAM x address start at 0
+    epd_data(0x00);
+    epd_data(0xBF); // RAM x address end at 3BFh -> 959
+    epd_data(0x03);
+    epd_cmd(0x45);
+    epd_data(0x7F); // RAM y address start at 27Fh;
+    epd_data(0x02);
+    epd_data(0x00); // RAM y address end at 00h;
+    epd_data(0x00);
 
-    epd_cmd(spi, 0x45);
-    epd_data(spi, 0x00);
-    epd_data(spi, 0x00);
-    epd_data(spi, 0x7F);
-    epd_data(spi, 0x02);
+    epd_cmd(0x3C); // VBD
+    epd_data(0x01); // LUT1, for white
+    ESP_LOGI(TAG, "Step 3 done: Initialization");
 
-    epd_cmd(spi, 0x3C);
-    epd_data(spi, 0x01);
+    epd_cmd(0x18);
+    epd_data(0x80);
+    epd_cmd(0x22);
+    epd_data(0xB1);
+    epd_cmd(0x20);
+    _waitBusy("load waveform");
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+    ESP_LOGI(TAG, "Step 4 done: Load waveform LUT");
 
-    epd_cmd(spi, 0x18);
-    epd_data(spi, 0x80);
+    epd_cmd(0x4E);//Ram window set
+    epd_data(0x00);
+    epd_data(0x00);
+    epd_cmd(0x4F);
+    epd_data(0x7F);
+    epd_data(0x02);
+}
 
-    epd_cmd(spi, 0x22);
-    epd_data(spi, 0xB1);
+void EPD_Update(void)
+{
+    epd_cmd(0x22); //Display Update Control
+    epd_data(0xF7);   
+    epd_cmd(0x20);  //Activate Display Update Sequence
+    _waitBusy("epd update");   
+}
 
-    epd_cmd(spi, 0x20);
-    _waitBusy("First Cmds");
-
-    epd_cmd(spi, 0x1B);
-
-    epd_cmd(spi, 0x14);
-    epd_data(spi, 0x80);
-
-    epd_cmd(spi, 0x4E);//Ram window set
-    epd_data(spi, 0xBF);
-    epd_data(spi, 0x03);
-    epd_cmd(spi, 0x4F);
-
-    epd_data(spi, 0x00);
-    epd_data(spi, 0x00);
-
-    epd_cmd(spi, 0x24);//BLack COLOR
-    //Here many 0xFF
-    ESP_LOGI(TAG, "Ok 1");
-    for (int r = 0; r <= 76800; r++)
-    {
-        epd_data(spi, r);
+void EPD_WhiteScreen_ALL(const unsigned char *BW_datas,const unsigned char *R_datas)
+{
+    unsigned int i;  
+    epd_cmd(0x24);   //write RAM for black(0)/white (1)
+    for( i= 0; i < SCREEN_TOTAL_BYTES; i++)
+    {               
+        epd_data(BW_datas[i]);
     }
-    
-    epd_cmd(spi, 0x4E);//Ram window set
-    epd_data(spi, 0xBF);
-    epd_data(spi, 0x03);
-
-    epd_cmd(spi, 0x4F);
-    epd_data(spi, 0x00);
-    epd_data(spi, 0x00);
-
-    epd_cmd(spi, 0x26);//Red COLOR
-    //Here many 0x00
-    ESP_LOGI(TAG, "Ok 2");
-    for (int r = 0; r <= 76800; r++)
-    {
-        epd_data(spi, r);
+    epd_cmd(0x26);   //write RAM for black(0)/white (1)
+    for(i = 0; i < SCREEN_TOTAL_BYTES; i++)
+    {               
+        epd_data(~R_datas[i]);
     }
+    EPD_Update();
+}
 
-    epd_cmd(spi, 0x22);
-    epd_data(spi, 0xF7);
+void EPD_WhiteScreen_ALL_Clean(void)
+{
+    unsigned int i;  
+    epd_cmd(0x24);   //write RAM for black(0)/white (1)
+    for( i= 0; i < SCREEN_TOTAL_BYTES; i++)
+    {               
+        epd_data(0xff);
+    }
+    epd_cmd(0x26);   //write RAM for black(0)/white (1)
+    for(i = 0; i < SCREEN_TOTAL_BYTES; i++)
+    {               
+        epd_data(0x00);
+    }
+    EPD_Update();
+}
 
-    epd_cmd(spi, 0x20);
-    _waitBusy("End");
-
-    ESP_LOGI(TAG, "Ok 3");
+void EPD_DeepSleep(void)
+{
+    epd_cmd(0x10); //enter deep sleep
+    epd_data(0x01); 
+    vTaskDelay(DELAY_11_6 / portTICK_PERIOD_MS);
 }
 
 void app_main(void)
 {
     esp_err_t ret;
-    spi_device_handle_t spi;
     spi_bus_config_t buscfg={
         .miso_io_num=-1,
         .mosi_io_num=EPD_PIN_MOSI,
@@ -249,6 +259,22 @@ void app_main(void)
     ret=spi_bus_add_device(LCD_HOST, &devcfg, &spi);
     ESP_ERROR_CHECK(ret);
     //Initialize the LCD
-    epd_init(spi);
+
+    while (1) {
+        //Full screen refresh
+        EPD_HW_Init(); //Electronic paper initialization
+        EPD_WhiteScreen_ALL(gImage_BW, gImage_R); //Refresh the picture in full screen
+        EPD_DeepSleep(); //Enter deep sleep,Sleep instruction is necessary, please do not delete!!! 
+        ESP_LOGI(TAG, "Display image");
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
+        
+        //Clean
+        EPD_HW_Init(); //Electronic paper initialization
+        EPD_WhiteScreen_ALL_Clean();
+        EPD_DeepSleep(); //Enter deep sleep,Sleep instruction is necessary, please do not delete!!!
+        ESP_LOGI(TAG, "Cleaned");
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
+    }
+    //epd_init();
     //Initialize the effect displayed
 }
