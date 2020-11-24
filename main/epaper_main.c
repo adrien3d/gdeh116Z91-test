@@ -215,7 +215,7 @@ void epd_init(spi_device_handle_t spi)
     }
 
     epd_cmd(spi, 0x22);
-    epd_data(spi, 0xC7);
+    epd_data(spi, 0xF7);
 
     epd_cmd(spi, 0x20);
     _waitBusy("End");
