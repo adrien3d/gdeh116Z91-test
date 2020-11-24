@@ -33,20 +33,20 @@
 #define EPD_PIN_BUSY    25*/
 
 // Atc1441 config
-#define EPD_PIN_CLK     15
+/*#define EPD_PIN_CLK     15
 #define EPD_PIN_MOSI    23
 #define EPD_PIN_CS      5
 #define EPD_PIN_DC      17
 #define EPD_PIN_RST     16
-#define EPD_PIN_BUSY    4
+#define EPD_PIN_BUSY    4*/
 
 // Tester ESP32
-/*#define EPD_PIN_MOSI    23
+#define EPD_PIN_MOSI    23
 #define EPD_PIN_CLK     18
 #define EPD_PIN_CS      32
 #define EPD_PIN_DC      27
 #define EPD_PIN_RST     26
-#define EPD_PIN_BUSY    35*/
+#define EPD_PIN_BUSY    35
 
 // One side
 /*#define EPD_PIN_MOSI    23
@@ -71,6 +71,7 @@ void epd_cmd(spi_device_handle_t spi, const uint8_t cmd) {
     gpio_set_level(EPD_PIN_CS, 0);
     ret=spi_device_polling_transmit(spi, &t);  //Transmit!
     gpio_set_level(EPD_PIN_CS, 1);
+    gpio_set_level(EPD_PIN_DC, 1);
     //assert(ret==ESP_OK);            //Should have had no issues.
 }
 
@@ -108,7 +109,7 @@ void _waitBusy(const char *message)
     if (gpio_get_level((gpio_num_t)EPD_PIN_BUSY) == 1)
       break;
     vTaskDelay(1);
-    if (esp_timer_get_time() - time_since_boot > 2000000)
+    if (esp_timer_get_time() - time_since_boot > 40000000)
     {
       ESP_LOGI(TAG, "Busy Timeout");
       break;
@@ -143,28 +144,36 @@ void epd_init(spi_device_handle_t spi)
     epd_data(spi, 0xC3);
     epd_data(spi, 0xC0);
     epd_data(spi, 0x40);
+
     epd_cmd(spi, 0x01);
     epd_data(spi, 0x7F);
     epd_data(spi, 0x02);
     epd_data(spi, 0x00);
+
     epd_cmd(spi, 0x11);
     epd_data(spi, 0x02);
+
     epd_cmd(spi, 0x44);
     epd_data(spi, 0xBF);
     epd_data(spi, 0x03);
     epd_data(spi, 0x00);
     epd_data(spi, 0x00);
+
     epd_cmd(spi, 0x45);
     epd_data(spi, 0x00);
     epd_data(spi, 0x00);
     epd_data(spi, 0x7F);
     epd_data(spi, 0x02);
+
     epd_cmd(spi, 0x3C);
     epd_data(spi, 0x01);
+
     epd_cmd(spi, 0x18);
     epd_data(spi, 0x80);
+
     epd_cmd(spi, 0x22);
     epd_data(spi, 0xB1);
+
     epd_cmd(spi, 0x20);
     _waitBusy("First Cmds");
 
@@ -177,8 +186,10 @@ void epd_init(spi_device_handle_t spi)
     epd_data(spi, 0xBF);
     epd_data(spi, 0x03);
     epd_cmd(spi, 0x4F);
+
     epd_data(spi, 0x00);
     epd_data(spi, 0x00);
+
     epd_cmd(spi, 0x24);//BLack COLOR
     //Here many 0xFF
     ESP_LOGI(TAG, "Ok 1");
@@ -190,9 +201,11 @@ void epd_init(spi_device_handle_t spi)
     epd_cmd(spi, 0x4E);//Ram window set
     epd_data(spi, 0xBF);
     epd_data(spi, 0x03);
+
     epd_cmd(spi, 0x4F);
     epd_data(spi, 0x00);
     epd_data(spi, 0x00);
+
     epd_cmd(spi, 0x26);//Red COLOR
     //Here many 0x00
     ESP_LOGI(TAG, "Ok 2");
@@ -203,6 +216,7 @@ void epd_init(spi_device_handle_t spi)
 
     epd_cmd(spi, 0x22);
     epd_data(spi, 0xC7);
+
     epd_cmd(spi, 0x20);
     _waitBusy("End");
 
